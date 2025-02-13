@@ -1,7 +1,21 @@
 services:
   postgres:
     build: ./db/postgresql
+    ports:
+      - "5432:5432"
     environment:
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: mypass
       POSTGRES_DB: avitostore
+  api:
+    build: .
+    ports: 
+      - "8080:8080"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: myuser
+      DB_PASSWORD: mypass
+      DB_NAME: avitostore
+    depends_on:
+      - postgres
