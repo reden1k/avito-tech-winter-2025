@@ -1,0 +1,7 @@
+services:
+  postgres:
+    build: ./db/postgresql
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypass
+      POSTGRES_DB: avitostore
