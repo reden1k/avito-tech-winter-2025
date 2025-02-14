@@ -19,8 +19,10 @@ CREATE TABLE IF NOT EXISTS employees (
 CREATE TABLE IF NOT EXISTS items (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
-    price DECIMAL(10, 2) NOT NULL
+    price INT NOT NULL
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_items_name ON items(name);
 
 CREATE TABLE IF NOT EXISTS purchases (
     id SERIAL PRIMARY KEY,
@@ -34,7 +36,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     id SERIAL PRIMARY KEY,
     sender_id INT,
     receiver_id INT,
-    amount DECIMAL(10, 2) NOT NULL,
+    amount INT NOT NULL,
     FOREIGN KEY (sender_id) REFERENCES employees(id),
     FOREIGN KEY (receiver_id) REFERENCES employees(id)
 );
