@@ -36,6 +36,11 @@ func InitDB() {
 
 	var err error
 	DB, err = sql.Open("postgres", dsn)
+
+	DB.SetMaxOpenConns(100)
+	DB.SetMaxIdleConns(10)
+	DB.SetConnMaxLifetime(0)
+
 	if err != nil {
 		log.Fatalf("Ошибка подключения к БД: %v", err)
 	}
