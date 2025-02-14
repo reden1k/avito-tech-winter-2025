@@ -28,7 +28,7 @@ func AuthHandler(w http.ResponseWriter, r *http.Request) {
 
 	var id int
 	var hashedPassword string
-	err := models.DB.QueryRow("SELECT id, password_hash FROM employees WHERE name = $1 AND surname = $2", req.Name, req.Surname).
+	err := models.DB.QueryRow("SELECT id, password_hash FROM employees WHERE username = $1", req.Username).
 		Scan(&id, &hashedPassword)
 
 	if err != nil {
@@ -40,8 +40,8 @@ func AuthHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			err = models.DB.QueryRow(
-				"INSERT INTO employees (name, surname, password_hash, coins) VALUES ($1, $2, $3, $4) RETURNING id",
-				req.Name, req.Surname, string(hashedPassword), 1000,
+				"INSERT INTO employees (username, password_hash, coins) VALUES ($1, $2, $3) RETURNING id",
+				req.Username, string(hashedPassword), 1000,
 			).Scan(&id)
 
 			if err != nil {
