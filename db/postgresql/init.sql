@@ -11,8 +11,7 @@ $$;
 
 CREATE TABLE IF NOT EXISTS employees (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    surname VARCHAR(255) NOT NULL,
+    username VARCHAR(255) NOT NULL,
     password_hash TEXT NOT NULL,
     coins INT DEFAULT 0
 );
@@ -39,3 +38,16 @@ CREATE TABLE IF NOT EXISTS transactions (
     FOREIGN KEY (sender_id) REFERENCES employees(id),
     FOREIGN KEY (receiver_id) REFERENCES employees(id)
 );
+
+INSERT INTO items (name, price) VALUES
+    ('t-shirt', 80),
+    ('cup', 20),
+    ('book', 50),
+    ('pen', 10),
+    ('powerbank', 200),
+    ('hoody', 300),
+    ('umbrella', 200),
+    ('socks', 10),
+    ('wallet', 50),
+    ('pink-hoody', 500)
+ON CONFLICT (name) DO NOTHING;
