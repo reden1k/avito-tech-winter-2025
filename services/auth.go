@@ -1,8 +1,8 @@
 package services
 
 import (
+	"avito-tech-winter-2025/db"
 	"avito-tech-winter-2025/dto"
-	"avito-tech-winter-2025/models"
 	"database/sql"
 	"time"
 
@@ -19,63 +19,13 @@ func HandleAuthRequest(req dto.AuthRequest) (*dto.AuthResponse, *dto.Error) {
 		}
 	}
 
-	tx, err := models.DB.Begin()
-	if err != nil {
-		return nil, &dto.Error{
-			Code:       "DB_TRANSACTION_ERROR",
-			Message:    "Ошибка при создании транзакции",
-			StatusCode: 500,
-		}
-	}
-	defer tx.Rollback()
-
 	var id int
 	var hashedPassword string
-	err = tx.QueryRow("SELECT id, password_hash FROM employees WHERE username = $1", req.Username).
+	err := db.DB.QueryRow("SELECT id, password_hash FROM employees WHERE username = $1", req.Username).
 		Scan(&id, &hashedPassword)
 
 	if err == sql.ErrNoRows {
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-		if err != nil {
-			return nil, &dto.Error{
-				Code:       "PASSWORD_HASH_ERROR",
-				Message:    "Ошибка хеширования пароля",
-				StatusCode: 500,
-			}
-		}
-
-		err = tx.QueryRow(
-			"INSERT INTO employees (username, password_hash, coins) VALUES ($1, $2, $3) RETURNING id",
-			req.Username, string(hashedPassword), 1000,
-		).Scan(&id)
-
-		if err != nil {
-			return nil, &dto.Error{
-				Code:       "USER_CREATION_ERROR",
-				Message:    "Ошибка создания пользователя",
-				StatusCode: 500,
-			}
-		}
-
-		// Генерация токена
-		tokenString, err := generateJWT(id)
-		if err != nil {
-			return nil, &dto.Error{
-				Code:       "TOKEN_GENERATION_ERROR",
-				Message:    "Ошибка генерации токена",
-				StatusCode: 500,
-			}
-		}
-
-		if err := tx.Commit(); err != nil {
-			return nil, &dto.Error{
-				Code:       "DB_COMMIT_ERROR",
-				Message:    "Ошибка при подтверждении транзакции",
-				StatusCode: 500,
-			}
-		}
-
-		return &dto.AuthResponse{Token: tokenString}, nil
+		return createUser(req.Username, req.Password)
 	} else if err != nil {
 		return nil, &dto.Error{
 			Code:       "DB_ERROR",
@@ -84,6 +34,7 @@ func HandleAuthRequest(req dto.AuthRequest) (*dto.AuthResponse, *dto.Error) {
 		}
 	}
 
+	// Проверяем пароль
 	if bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(req.Password)) != nil {
 		return nil, &dto.Error{
 			Code:       "INVALID_PASSWORD",
@@ -92,6 +43,7 @@ func HandleAuthRequest(req dto.AuthRequest) (*dto.AuthResponse, *dto.Error) {
 		}
 	}
 
+	// Генерируем JWT
 	tokenString, err := generateJWT(id)
 	if err != nil {
 		return nil, &dto.Error{
@@ -101,10 +53,38 @@ func HandleAuthRequest(req dto.AuthRequest) (*dto.AuthResponse, *dto.Error) {
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
+	return &dto.AuthResponse{Token: tokenString}, nil
+}
+
+func createUser(username, password string) (*dto.AuthResponse, *dto.Error) {
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
+	if err != nil {
 		return nil, &dto.Error{
-			Code:       "DB_COMMIT_ERROR",
-			Message:    "Ошибка при подтверждении транзакции",
+			Code:       "PASSWORD_HASH_ERROR",
+			Message:    "Ошибка хеширования пароля",
+			StatusCode: 500,
+		}
+	}
+
+	var id int
+	err = db.DB.QueryRow(
+		"INSERT INTO employees (username, password_hash, coins) VALUES ($1, $2, $3) RETURNING id",
+		username, string(hashedPassword), 1000,
+	).Scan(&id)
+
+	if err != nil {
+		return nil, &dto.Error{
+			Code:       "USER_CREATION_ERROR",
+			Message:    "Ошибка создания пользователя",
+			StatusCode: 500,
+		}
+	}
+
+	tokenString, err := generateJWT(id)
+	if err != nil {
+		return nil, &dto.Error{
+			Code:       "TOKEN_GENERATION_ERROR",
+			Message:    "Ошибка генерации токена",
 			StatusCode: 500,
 		}
 	}

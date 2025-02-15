@@ -1,124 +1,127 @@
 package services
 
 import (
+	"avito-tech-winter-2025/db"
 	"avito-tech-winter-2025/dto"
 	"avito-tech-winter-2025/models"
 	"database/sql"
 )
 
 func HandleInfoRequest(token string) (*dto.InfoResponse, *dto.Error) {
-	userId, error := ExtractJWT(token)
-	if error != nil {
-		return nil, error
-	}
-
-	var user models.Employee
-	err := models.DB.QueryRow("SELECT id, coins FROM employees WHERE id = $1", int(userId)).Scan(&user.ID, &user.Coins)
+	userId, err := ExtractJWT(token)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, &dto.Error{
-				Code:       "USER_NOT_FOUND",
-				Message:    "Пользователь не найден",
-				StatusCode: 404,
-			}
-		}
-		return nil, &dto.Error{
-			Code:       "DB_ERROR",
-			Message:    "Ошибка базы данных",
-			StatusCode: 500,
-		}
+		return nil, err
 	}
 
-	var inventory []dto.InventoryItem
-	rows, err := models.DB.Query(`
-        SELECT items.name, COUNT(*) 
-        FROM purchases 
-        JOIN items ON purchases.item_id = items.id 
-        WHERE purchases.employee_id = $1 
-        GROUP BY items.name`, user.ID)
-	if err != nil {
-		return nil, &dto.Error{
-			Code:       "ITEMS_RETRIEVAL_ERROR",
-			Message:    "Ошибка при извлечении инвентаря",
-			StatusCode: 500,
-		}
-	}
-	defer rows.Close()
+	userCh := make(chan *models.Employee)
+	invCh := make(chan []dto.InventoryItem)
+	receivedCh := make(chan []dto.CoinTransaction)
+	sentCh := make(chan []dto.CoinTransaction)
+	errCh := make(chan *dto.Error, 4)
 
-	for rows.Next() {
-		var item dto.InventoryItem
-		if err := rows.Scan(&item.Type, &item.Quantity); err != nil {
-			return nil, &dto.Error{
-				Code:       "ITEMS_SCAN_ERROR",
-				Message:    "Ошибка при обработке инвентаря",
-				StatusCode: 500,
-			}
-		}
-		inventory = append(inventory, item)
+	go fetchUser(userId, userCh, errCh)
+	go fetchInventory(userId, invCh, errCh)
+	go fetchTransactions(userId, receivedCh, sentCh, errCh)
+
+	user := <-userCh
+	if user == nil {
+		return nil, <-errCh
+	}
+	inventory := <-invCh
+	received := <-receivedCh
+	sent := <-sentCh
+
+	select {
+	case err := <-errCh:
+		return nil, err
+	default:
 	}
 
-	var received []dto.CoinTransaction
-	var sent []dto.CoinTransaction
-	rows, err = models.DB.Query(`
-        SELECT sender_id, receiver_id, amount 
-        FROM transactions 
-        WHERE sender_id = $1 OR receiver_id = $1`, user.ID)
-	if err != nil {
-		return nil, &dto.Error{
-			Code:       "TRANSACTIONS_RETRIEVAL_ERROR",
-			Message:    "Ошибка при извлечении транзакций",
-			StatusCode: 500,
-		}
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var t dto.CoinTransaction
-		var senderId, receiverId int
-		if err := rows.Scan(&senderId, &receiverId, &t.Amount); err != nil {
-			return nil, &dto.Error{
-				Code:       "TRANSACTIONS_SCAN_ERROR",
-				Message:    "Ошибка при обработке транзакций",
-				StatusCode: 500,
-			}
-		}
-
-		var receiverUsername string
-		err := models.DB.QueryRow("SELECT username FROM employees WHERE id = $1", receiverId).Scan(&receiverUsername)
-		if err != nil {
-			return nil, &dto.Error{
-				Code:       "RECEIVER_USERNAME_ERROR",
-				Message:    "Ошибка при получении имени пользователя получателя",
-				StatusCode: 500,
-			}
-		}
-
-		if senderId == user.ID {
-			t.ToUser = receiverUsername
-			sent = append(sent, t)
-		} else {
-			var senderUsername string
-			err := models.DB.QueryRow("SELECT username FROM employees WHERE id = $1", senderId).Scan(&senderUsername)
-			if err != nil {
-				return nil, &dto.Error{
-					Code:       "SENDER_USERNAME_ERROR",
-					Message:    "Ошибка при получении имени пользователя отправителя",
-					StatusCode: 500,
-				}
-			}
-			t.FromUser = senderUsername
-			received = append(received, t)
-		}
-	}
-
-	infoResponse := &dto.InfoResponse{
+	return &dto.InfoResponse{
 		Coins:     user.Coins,
 		Inventory: inventory,
 		CoinHistory: dto.CoinHistory{
 			Received: received,
 			Sent:     sent,
 		},
-	}
+	}, nil
+}
 
-	return infoResponse, nil
+func fetchUser(userId int, ch chan<- *models.Employee, errCh chan<- *dto.Error) {
+	var user models.Employee
+	err := db.DB.QueryRow("SELECT id, coins FROM employees WHERE id = $1", userId).Scan(&user.ID, &user.Coins)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			errCh <- &dto.Error{Code: "USER_NOT_FOUND", Message: "Пользователь не найден", StatusCode: 404}
+		} else {
+			errCh <- &dto.Error{Code: "DB_ERROR", Message: "Ошибка базы данных", StatusCode: 500}
+		}
+		ch <- nil
+		return
+	}
+	ch <- &user
+}
+
+func fetchInventory(userId int, ch chan<- []dto.InventoryItem, errCh chan<- *dto.Error) {
+	rows, err := db.DB.Query(`SELECT items.name, COUNT(*) FROM purchases JOIN items ON purchases.item_id = items.id WHERE purchases.employee_id = $1 GROUP BY items.name`, userId)
+	if err != nil {
+		errCh <- &dto.Error{Code: "ITEMS_RETRIEVAL_ERROR", Message: "Ошибка при извлечении инвентаря", StatusCode: 500}
+		ch <- nil
+		return
+	}
+	defer rows.Close()
+
+	var inventory []dto.InventoryItem
+	for rows.Next() {
+		var item dto.InventoryItem
+		if err := rows.Scan(&item.Type, &item.Quantity); err != nil {
+			errCh <- &dto.Error{Code: "ITEMS_SCAN_ERROR", Message: "Ошибка при обработке инвентаря", StatusCode: 500}
+			ch <- nil
+			return
+		}
+		inventory = append(inventory, item)
+	}
+	ch <- inventory
+}
+
+func fetchTransactions(userId int, receivedCh, sentCh chan<- []dto.CoinTransaction, errCh chan<- *dto.Error) {
+	rows, err := db.DB.Query(`SELECT sender_id, receiver_id, amount FROM transactions WHERE sender_id = $1 OR receiver_id = $1`, userId)
+	if err != nil {
+		errCh <- &dto.Error{Code: "TRANSACTIONS_RETRIEVAL_ERROR", Message: "Ошибка при извлечении транзакций", StatusCode: 500}
+		receivedCh <- nil
+		sentCh <- nil
+		return
+	}
+	defer rows.Close()
+
+	var received, sent []dto.CoinTransaction
+	for rows.Next() {
+		var t dto.CoinTransaction
+		var senderId, receiverId int
+		if err := rows.Scan(&senderId, &receiverId, &t.Amount); err != nil {
+			errCh <- &dto.Error{Code: "TRANSACTIONS_SCAN_ERROR", Message: "Ошибка при обработке транзакций", StatusCode: 500}
+			receivedCh <- nil
+			sentCh <- nil
+			return
+		}
+		if senderId == userId {
+			t.ToUser = fetchUsername(receiverId, errCh)
+			sent = append(sent, t)
+		} else {
+			t.FromUser = fetchUsername(senderId, errCh)
+			received = append(received, t)
+		}
+	}
+	receivedCh <- received
+	sentCh <- sent
+}
+
+func fetchUsername(userId int, errCh chan<- *dto.Error) string {
+	var username string
+	err := db.DB.QueryRow("SELECT username FROM employees WHERE id = $1", userId).Scan(&username)
+	if err != nil {
+		errCh <- &dto.Error{Code: "USERNAME_FETCH_ERROR", Message: "Ошибка при получении имени пользователя", StatusCode: 500}
+		return ""
+	}
+	return username
 }
