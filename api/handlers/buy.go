@@ -2,42 +2,41 @@ package handlers
 
 import (
 	"avito-tech-winter-2025/services"
-	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
-func BuyHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Только POST-запросы разрешены", http.StatusMethodNotAllowed)
+func BuyHandler(c *gin.Context) {
+	if c.Request.Method != http.MethodPost {
+		c.JSON(http.StatusMethodNotAllowed, gin.H{"error": "Только POST-запросы разрешены"})
 		return
 	}
 
-	authHeader := r.Header.Get("Authorization")
+	authHeader := c.GetHeader("Authorization")
 	if !strings.HasPrefix(authHeader, "Bearer ") {
-		http.Error(w, "Токен не найден", http.StatusUnauthorized)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Токен не найден"})
 		return
 	}
 	token := authHeader[7:]
 
-	itemName := strings.TrimPrefix(r.URL.Path, "/api/buy/")
+	itemName := c.Param("itemName")
 
 	if itemName == "" {
-		http.Error(w, "Имя товара не указано", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Имя товара не указано"})
 		return
 	}
 
 	buyResponse, err := services.HandleBuyRequest(token, itemName)
 	if err != nil {
 		log.Printf("Ошибка при обработке запроса: %s", err.Message)
-		http.Error(w, err.Message, err.StatusCode)
+		c.JSON(err.StatusCode, gin.H{"error": err.Message})
 		return
 	}
 
 	log.Printf("Успешная покупка товара: %s", itemName)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(buyResponse)
+	c.JSON(http.StatusOK, buyResponse)
 }

@@ -2,31 +2,30 @@ package handlers
 
 import (
 	"avito-tech-winter-2025/services"
-	"encoding/json"
 	"net/http"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
-func InfoHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Только GET-запросы разрешены", http.StatusMethodNotAllowed)
+func InfoHandler(c *gin.Context) {
+	if c.Request.Method != http.MethodGet {
+		c.JSON(http.StatusMethodNotAllowed, gin.H{"error": "Только GET-запросы разрешены"})
 		return
 	}
 
-	authHeader := r.Header.Get("Authorization")
+	authHeader := c.GetHeader("Authorization")
 	if !strings.HasPrefix(authHeader, "Bearer ") {
-		http.Error(w, "Токен не найден", http.StatusUnauthorized)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Токен не найден"})
 		return
 	}
 	token := authHeader[7:]
 
 	infoResponse, err := services.HandleInfoRequest(token)
 	if err != nil {
-		http.Error(w, err.Message, err.StatusCode)
+		c.JSON(err.StatusCode, gin.H{"error": err.Message})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(infoResponse)
+	c.JSON(http.StatusOK, infoResponse)
 }

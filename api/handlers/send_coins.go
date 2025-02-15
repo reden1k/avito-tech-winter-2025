@@ -3,41 +3,40 @@ package handlers
 import (
 	"avito-tech-winter-2025/dto"
 	"avito-tech-winter-2025/services"
-	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
-func SendCoinsHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Только POST-запросы разрешены", http.StatusMethodNotAllowed)
+func SendCoinsHandler(c *gin.Context) {
+	if c.Request.Method != http.MethodPost {
+		c.JSON(http.StatusMethodNotAllowed, gin.H{"error": "Только POST-запросы разрешены"})
 		return
 	}
 
-	authHeader := r.Header.Get("Authorization")
+	authHeader := c.GetHeader("Authorization")
 	if !strings.HasPrefix(authHeader, "Bearer ") {
-		http.Error(w, "Токен не найден", http.StatusUnauthorized)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Токен не найден"})
 		return
 	}
 	token := authHeader[7:]
 
 	var sendCoinsRequest dto.SendCoinsRequest
-	if err := json.NewDecoder(r.Body).Decode(&sendCoinsRequest); err != nil {
-		http.Error(w, "Ошибка декодирования запроса", http.StatusBadRequest)
+	if err := c.ShouldBindJSON(&sendCoinsRequest); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Ошибка декодирования запроса"})
 		return
 	}
 
 	sendCoinsResponse, err := services.HandleSendCoinsRequest(token, sendCoinsRequest)
 	if err != nil {
 		log.Printf("Ошибка при переводе монет: %s", err.Message)
-		http.Error(w, err.Message, err.StatusCode)
+		c.JSON(err.StatusCode, gin.H{"error": err.Message})
 		return
 	}
 
 	log.Printf("Успешный перевод %d монет пользователю %s", sendCoinsRequest.Amount, sendCoinsRequest.ReceiverUsername)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(sendCoinsResponse)
+	c.JSON(http.StatusOK, sendCoinsResponse)
 }
